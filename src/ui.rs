@@ -1,6 +1,4 @@
 use crate::app::{App, CurrentPane};
-use anyhow::Context;
-use ratatui::text;
 
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
@@ -33,7 +31,8 @@ pub fn ui(frame: &mut ratatui::Frame, app: &App) {
         .borders(Borders::ALL)
         .style(other_style);
 
-    let terminal = Paragraph::new("Habbab").block(terminal_block);
+    let terminal_content = app.process.lines.join("\n");
+    let terminal = Paragraph::new(terminal_content).block(terminal_block);
 
     frame.render_widget(terminal, chunks[0]);
     frame.render_widget(other_block, chunks[1]);

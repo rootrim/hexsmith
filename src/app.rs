@@ -1,8 +1,8 @@
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use std::process::Stdio;
-use tokio::io::{BufReader, BufWriter};
-use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::io::{AsyncBufReadExt, BufReader, BufWriter, Lines};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 use crate::ui::ui;
 
@@ -18,10 +18,11 @@ pub enum CurrentPane {
 }
 
 pub struct Process {
-    path: String,
-    child: Child,
-    reader: BufReader<ChildStdout>,
-    writer: BufWriter<ChildStdin>,
+    pub path: String,
+    pub child: Child,
+    pub reader: Lines<BufReader<ChildStdout>>,
+    pub writer: BufWriter<ChildStdin>,
+    pub lines: Vec<String>,
 }
 
 impl App {
@@ -32,17 +33,11 @@ impl App {
             .spawn()
             .unwrap();
 
-        let stdout = //crazy
-            child.stdout.take().unwrap();
-
-        let stdin = //crazy
-            child.stdin.take().unwrap();
-
-        let reader = //nani
-            BufReader::new(stdout);
-
-        let writer = //nani
-            BufWriter::new(stdin);
+        let stdout = child.stdout.take().unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let reader = BufReader::new(stdout).lines();
+        let writer = BufWriter::new(stdin);
+        let lines = Vec::new();
 
         let app = App {
             process: Process {
@@ -50,6 +45,7 @@ impl App {
                 child,
                 reader,
                 writer,
+                lines,
             },
             current_pane: CurrentPane::Terminal,
             running: true,

@@ -14,6 +14,7 @@ async fn main() -> anyhow::Result<()> {
         .context("Please provide a binary to analyze")?;
 
     let mut app = App::new(binary_path);
+
     app.run(&mut terminal)?;
 
     ratatui::restore();
