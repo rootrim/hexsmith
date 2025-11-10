@@ -16,7 +16,7 @@
       packages.x86_64-linux.default = naerskLib.buildPackage {
         src = ./.;
 
-        buildInputs = with pkgs; [ openssl cargo rustc rust-analyzer ];
+        buildInputs = with pkgs; [ openssl cargo rustc rust-analyzer rustfmt ];
 
         nativeBuildInputs = with pkgs; [ pkg-config ];
       };
