@@ -3,7 +3,6 @@ mod ui;
 
 use anyhow::Context;
 use app::App;
-use ratatui;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

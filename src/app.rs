@@ -1,8 +1,10 @@
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, BufReader, BufWriter, Lines};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use std::sync::Arc;
+use std::sync::Mutex;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, Command};
 
 use crate::ui::ui;
 
@@ -17,12 +19,11 @@ pub enum CurrentPane {
     Other,
 }
 
+#[allow(dead_code)]
 pub struct Process {
     pub path: String,
     pub child: Child,
-    pub reader: Lines<BufReader<ChildStdout>>,
-    pub writer: BufWriter<ChildStdin>,
-    pub lines: Vec<String>,
+    pub lines: Arc<Mutex<Vec<String>>>,
 }
 
 impl App {
@@ -34,28 +35,30 @@ impl App {
             .unwrap();
 
         let stdout = child.stdout.take().unwrap();
-        let stdin = child.stdin.take().unwrap();
-        let reader = BufReader::new(stdout).lines();
-        let writer = BufWriter::new(stdin);
-        let lines = Vec::new();
+        let mut reader = BufReader::new(stdout).lines();
+        let lines = Arc::new(Mutex::new(Vec::new()));
 
-        let app = App {
+        let lines_ref = lines.clone();
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = reader.next_line().await {
+                lines_ref.lock().unwrap().push(line);
+            }
+        });
+
+        App {
             process: Process {
                 path: binary_path,
                 child,
-                reader,
-                writer,
                 lines,
             },
             current_pane: CurrentPane::Terminal,
             running: true,
-        };
-        app
+        }
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
         while self.running {
-            terminal.draw(|f| ui(f, &self))?;
+            terminal.draw(|f| ui(f, self))?;
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Release {
                     continue;
