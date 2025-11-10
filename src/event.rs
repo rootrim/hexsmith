@@ -4,7 +4,7 @@ use ratatui::crossterm::event::Event as CrosstermEvent;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-const TICK_FPS: f64 = 120.0;
+const TICK_FPS: f64 = 30.0;
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -16,6 +16,7 @@ pub enum Event {
 #[derive(Clone, Debug)]
 pub enum AppEvent {
     Quit,
+    PaneSwitch,
 }
 
 #[derive(Debug)]

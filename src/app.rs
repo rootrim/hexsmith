@@ -8,6 +8,7 @@ use crate::event::{AppEvent, EventHandler};
 pub struct App {
     pub running: bool,
     pub events: EventHandler,
+    pub current_pane: Pane,
 }
 
 impl Default for App {
@@ -15,6 +16,7 @@ impl Default for App {
         Self {
             running: true,
             events: EventHandler::new(),
+            current_pane: Pane::Terminal,
         }
     }
 }
@@ -39,6 +41,12 @@ impl App {
                 },
                 Event::App(app_event) => match app_event {
                     AppEvent::Quit => self.running = false,
+                    AppEvent::PaneSwitch => {
+                        self.current_pane = match self.current_pane {
+                            Pane::Terminal => Pane::Other,
+                            Pane::Other => Pane::Terminal,
+                        }
+                    }
                 },
             }
         }
@@ -50,10 +58,16 @@ impl App {
     pub fn handle_key_event(&mut self, key_event: KeyEvent) -> anyhow::Result<()> {
         match key_event.code {
             KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Quit),
-
+            KeyCode::Tab => self.events.send(AppEvent::PaneSwitch),
             _ => {}
         }
 
         Ok(())
     }
+}
+
+#[derive(Debug)]
+pub enum Pane {
+    Terminal,
+    Other,
 }

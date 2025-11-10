@@ -1,12 +1,11 @@
-use crossterm::style::Color;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::Stylize,
+    style::{Color, Style, Stylize},
     widgets::{Block, BorderType, Paragraph, Widget},
 };
 
-use crate::app::App;
+use crate::app::{App, Pane};
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
@@ -18,17 +17,28 @@ impl Widget for &App {
 
         let text = "Habbab".to_string();
 
+        let terminal_style = if let Pane::Terminal = self.current_pane {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+
+        let other_style = if let Pane::Other = self.current_pane {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+
         let terminal_block = Block::bordered()
             .title("Terminal")
-            .border_type(BorderType::Rounded);
+            .border_type(BorderType::Rounded)
+            .style(terminal_style);
         let other_block = Block::bordered()
             .title("Other Block")
-            .border_type(BorderType::Rounded);
+            .border_type(BorderType::Rounded)
+            .style(other_style);
 
-        let paragraph = Paragraph::new(text)
-            .block(terminal_block)
-            .fg(Color::Cyan)
-            .bg(Color::Black);
+        let paragraph = Paragraph::new(text).block(terminal_block);
 
         paragraph.render(chunks[0], buf);
         other_block.render(chunks[1], buf);
