@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut app = App::new(binary_path);
 
-    app.run(&mut terminal)?;
+    app.run(&mut terminal).await?;
 
     ratatui::restore();
 

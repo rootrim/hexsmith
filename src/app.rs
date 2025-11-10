@@ -3,6 +3,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
@@ -27,6 +28,8 @@ pub struct Process {
 }
 
 impl App {
+    const FRAMES_PER_SECOND: f32 = 120.0;
+
     pub fn new(binary_path: String) -> Self {
         let mut child = Command::new(&binary_path)
             .stdout(Stdio::piped())
@@ -51,14 +54,20 @@ impl App {
                 child,
                 lines,
             },
-            current_pane: CurrentPane::Terminal,
+            current_pane: CurrentPane::Other,
             running: true,
         }
     }
 
-    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+    pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+        let period = Duration::from_secs_f32(1.0 / Self::FRAMES_PER_SECOND);
+        let mut interval = tokio::time::interval(period);
+
         while self.running {
-            terminal.draw(|f| ui(f, self))?;
+            tokio::select! {
+                _ = interval.tick() => { terminal.draw(|f| ui(f, self))?;},
+            }
+
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Release {
                     continue;
@@ -72,5 +81,9 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    pub fn handle_event(&mut self, _event: Event) {
+        // Handle other events if necessary
     }
 }
