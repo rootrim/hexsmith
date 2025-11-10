@@ -1,3 +1,13 @@
-fn main() {
-    println!("habbab");
+use crate::app::App;
+
+pub mod app;
+pub mod event;
+pub mod ui;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let terminal = ratatui::init();
+    let result = App::new().run(terminal).await;
+    ratatui::restore();
+    result
 }
