@@ -13,7 +13,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
-            running: false,
+            running: true,
             events: EventHandler::new(),
         }
     }
