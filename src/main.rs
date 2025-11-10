@@ -1,33 +1,22 @@
 mod app;
 mod ui;
 
-use anyhow;
-use ratatui::Terminal;
-use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use ratatui::crossterm::execute;
-use ratatui::crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::prelude::CrosstermBackend;
-use std::io;
-use tokio;
+use anyhow::Context;
+use app::App;
+use ratatui;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let mut terminal = ratatui::init();
 
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let binary_path = std::env::args()
+        .nth(1)
+        .context("Please provide a binary to analyze")?;
 
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    let mut app = App::new(binary_path);
+    app.run(&mut terminal)?;
+
+    ratatui::restore();
 
     Ok(())
 }
