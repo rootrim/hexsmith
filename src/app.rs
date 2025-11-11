@@ -14,6 +14,7 @@ pub struct App {
     pub running: bool,
     pub events: EventHandler,
     pub current_pane: Pane,
+    pub target: Process,
 }
 
 impl Default for App {
@@ -22,6 +23,9 @@ impl Default for App {
             running: true,
             events: EventHandler::new(),
             current_pane: Pane::Terminal,
+            target: Process::new(
+                "/nix/store/qx4mns4a0nzcv783jbvmgs0wgv9fxpks-system-path/bin/ls".into(),
+            ),
         }
     }
 }
@@ -77,6 +81,7 @@ pub enum Pane {
     Other,
 }
 
+#[derive(Debug)]
 pub struct Process {
     pub path: String,
     pub child: Child,
