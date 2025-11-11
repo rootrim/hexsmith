@@ -4,8 +4,10 @@ use crate::event::Event;
 use anyhow::anyhow;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio::sync::mpsc;
 
 use crate::event::{AppEvent, EventHandler};
 
@@ -15,21 +17,30 @@ pub struct App {
     pub events: EventHandler,
     pub current_pane: Pane,
     pub target: Process,
+    pub output_rx: mpsc::UnboundedReceiver<String>,
 }
 
 impl App {
     pub fn new(path: String) -> Self {
+        let mut target = Process::new(path);
+        let output_rx = target.spawn_reader();
+
         Self {
             running: true,
             events: EventHandler::new(),
             current_pane: Pane::Terminal,
-            target: Process::new(path),
+            target,
+            output_rx,
         }
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         while self.running {
-            self.target.read_output().await?;
+            while let Ok(chunk) = self.output_rx.try_recv() {
+                self.target
+                    .output_buffer
+                    .extend_from_slice(chunk.as_bytes());
+            }
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
             match self.events.next().await? {
                 Event::Tick => self.tick(),
@@ -97,17 +108,6 @@ impl Process {
         }
     }
 
-    pub async fn read_output(&mut self) -> anyhow::Result<usize> {
-        if let Some(stdout) = &mut self.child.stdout {
-            let mut buf = [0u8; 1024];
-            let n = stdout.read(&mut buf).await?;
-            self.output_buffer.extend_from_slice(&buf[..n]);
-            Ok(n)
-        } else {
-            Err(anyhow!("No stdout available"))
-        }
-    }
-
     pub async fn write_input(&mut self, data: &[u8]) -> anyhow::Result<()> {
         if let Some(stdin) = &mut self.child.stdin {
             stdin.write_all(data).await?;
@@ -120,5 +120,30 @@ impl Process {
 
     pub fn get_output_as_string(&self) -> String {
         String::from_utf8_lossy(&self.output_buffer).to_string()
+    }
+
+    pub fn spawn_reader(&mut self) -> mpsc::UnboundedReceiver<String> {
+        let stdout = self.child.stdout.take().expect("No stdout");
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout);
+            let mut buf = [0u8; 1024];
+
+            loop {
+                match reader.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
+                        if tx.send(chunk).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        rx
     }
 }
