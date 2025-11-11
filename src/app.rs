@@ -4,7 +4,7 @@ use crate::event::Event;
 use anyhow::anyhow;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
 
 use crate::event::{AppEvent, EventHandler};
@@ -80,8 +80,7 @@ pub enum Pane {
 pub struct Process {
     pub path: String,
     pub child: Child,
-    pub output_buffer: [u8; 1024],
-    pub input_buffer: Vec<u8>,
+    pub output_buffer: Vec<u8>,
 }
 
 impl Process {
@@ -91,23 +90,37 @@ impl Process {
             .stdout(Stdio::piped())
             .spawn()
             .expect("Failed to spawn process");
-        let output_buffer = [0u8; 1024];
-        let input_buffer = Vec::new();
+        let output_buffer = Vec::new();
 
         Self {
             path,
             child,
             output_buffer,
-            input_buffer,
         }
     }
 
     pub async fn read_output(&mut self) -> anyhow::Result<usize> {
         if let Some(stdout) = &mut self.child.stdout {
-            let n = stdout.read(&mut self.output_buffer).await?;
+            let mut buf = [0u8; 1024];
+            let n = stdout.read(&mut buf).await?;
+            self.output_buffer.extend_from_slice(&buf[..n]);
             Ok(n)
         } else {
             Err(anyhow!("No stdout available"))
         }
+    }
+
+    pub async fn write_input(&mut self, data: &[u8]) -> anyhow::Result<()> {
+        if let Some(stdin) = &mut self.child.stdin {
+            stdin.write_all(data).await?;
+            stdin.flush().await?;
+            Ok(())
+        } else {
+            Err(anyhow!("No stdin available"))
+        }
+    }
+
+    pub fn get_output_as_string(&mut self) -> String {
+        String::from_utf8_lossy(&self.output_buffer).to_string()
     }
 }
