@@ -17,22 +17,14 @@ pub struct App {
     pub target: Process,
 }
 
-impl Default for App {
-    fn default() -> Self {
+impl App {
+    pub fn new(path: String) -> Self {
         Self {
             running: true,
             events: EventHandler::new(),
             current_pane: Pane::Terminal,
-            target: Process::new(
-                "/nix/store/qx4mns4a0nzcv783jbvmgs0wgv9fxpks-system-path/bin/ls".into(),
-            ),
+            target: Process::new(path),
         }
-    }
-}
-
-impl App {
-    pub fn new() -> Self {
-        Self::default()
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
