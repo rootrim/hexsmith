@@ -1,6 +1,11 @@
+use std::process::Stdio;
+
 use crate::event::Event;
+use anyhow::anyhow;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use tokio::io::AsyncReadExt;
+use tokio::process::{Child, Command};
 
 use crate::event::{AppEvent, EventHandler};
 
@@ -70,4 +75,39 @@ impl App {
 pub enum Pane {
     Terminal,
     Other,
+}
+
+pub struct Process {
+    pub path: String,
+    pub child: Child,
+    pub output_buffer: [u8; 1024],
+    pub input_buffer: Vec<u8>,
+}
+
+impl Process {
+    pub fn new(path: String) -> Self {
+        let child = Command::new(&path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to spawn process");
+        let output_buffer = [0u8; 1024];
+        let input_buffer = Vec::new();
+
+        Self {
+            path,
+            child,
+            output_buffer,
+            input_buffer,
+        }
+    }
+
+    pub async fn read_output(&mut self) -> anyhow::Result<usize> {
+        if let Some(stdout) = &mut self.child.stdout {
+            let n = stdout.read(&mut self.output_buffer).await?;
+            Ok(n)
+        } else {
+            Err(anyhow!("No stdout available"))
+        }
+    }
 }
