@@ -15,7 +15,7 @@ impl Widget for &App {
             .split(area);
         let chunks = split;
 
-        let text = "Habbab".to_string();
+        let text = self.target.get_output_as_string();
 
         let terminal_style = if let Pane::Terminal = self.current_pane {
             Style::default().bg(Color::DarkGray)

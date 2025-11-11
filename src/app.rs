@@ -37,6 +37,7 @@ impl App {
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         while self.running {
+            self.target.read_output().await?;
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
             match self.events.next().await? {
                 Event::Tick => self.tick(),
@@ -125,7 +126,7 @@ impl Process {
         }
     }
 
-    pub fn get_output_as_string(&mut self) -> String {
+    pub fn get_output_as_string(&self) -> String {
         String::from_utf8_lossy(&self.output_buffer).to_string()
     }
 }
