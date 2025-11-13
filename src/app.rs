@@ -1,45 +1,50 @@
-use std::process::Stdio;
+use std::io::Read;
 
 use crate::event::Event;
-use anyhow::anyhow;
+use anyhow::Context;
+use portable_pty::{CommandBuilder, PtyPair, PtySize, native_pty_system};
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use tokio::io::AsyncWriteExt;
-use tokio::io::{AsyncReadExt, BufReader};
-use tokio::process::{Child, Command};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, Receiver, Sender, channel};
 
 use crate::event::{AppEvent, EventHandler};
 
-#[derive(Debug)]
+type PtyChannels = (PtyPair, Sender<Vec<u8>>, Receiver<Vec<u8>>);
+
 pub struct App {
     pub running: bool,
     pub events: EventHandler,
     pub current_pane: Pane,
-    pub target: Process,
-    pub output_rx: mpsc::UnboundedReceiver<String>,
+    pub pair: PtyPair,
+    pub pty_buffer: String,
+    pub tx: Sender<Vec<u8>>,
+    pub rx: Receiver<Vec<u8>>,
 }
 
 impl App {
     pub fn new(path: String) -> Self {
-        let mut target = Process::new(path);
-        let output_rx = target.spawn_reader();
-
+        let (pair, tx, rx) = App::create_pty_process(path)
+            .context("Failed to create pty process")
+            .unwrap();
         Self {
             running: true,
             events: EventHandler::new(),
             current_pane: Pane::Terminal,
-            target,
-            output_rx,
+            pair,
+            pty_buffer: String::new(),
+            tx,
+            rx,
         }
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         while self.running {
-            while let Ok(chunk) = self.output_rx.try_recv() {
-                self.target
-                    .output_buffer
-                    .extend_from_slice(chunk.as_bytes());
+            while let Ok(data) = self.rx.try_recv() {
+                self.pty_buffer.push_str(&String::from_utf8_lossy(&data));
+                let lines: Vec<&str> = self.pty_buffer.lines().collect();
+                if lines.len() > 100 {
+                    self.pty_buffer = lines[lines.len() - 100..].join("\n");
+                }
             }
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
             match self.events.next().await? {
@@ -48,7 +53,7 @@ impl App {
                     crossterm::event::Event::Key(key_event)
                         if key_event.kind == KeyEventKind::Press =>
                     {
-                        self.handle_key_event(key_event)?
+                        self.handle_key_event(key_event).await?
                     }
                     _ => {}
                 },
@@ -68,74 +73,51 @@ impl App {
 
     pub fn tick(&self) {}
 
-    pub fn handle_key_event(&mut self, key_event: KeyEvent) -> anyhow::Result<()> {
+    pub async fn handle_key_event(&mut self, key_event: KeyEvent) -> anyhow::Result<()> {
         match key_event.code {
-            KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Quit),
+            KeyCode::Esc => self.events.send(AppEvent::Quit),
             KeyCode::Tab => self.events.send(AppEvent::PaneSwitch),
+            KeyCode::Char(c) => self.tx.send(vec![c as u8]).await?,
+            KeyCode::Enter => {
+                self.tx.send(vec![b'\n']).await?;
+            }
             _ => {}
         }
 
         Ok(())
     }
-}
 
-#[derive(Debug)]
-pub enum Pane {
-    Terminal,
-    Other,
-}
+    pub fn create_pty_process(path: String) -> anyhow::Result<PtyChannels> {
+        let (tx_input, mut rx_input) = channel::<Vec<u8>>(100);
+        let (tx_output, rx_output) = channel::<Vec<u8>>(100);
 
-#[derive(Debug)]
-pub struct Process {
-    pub path: String,
-    pub child: Child,
-    pub output_buffer: Vec<u8>,
-}
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 0,
+                cols: 0,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .context("Failed to open pty")
+            .unwrap();
 
-impl Process {
-    pub fn new(path: String) -> Self {
-        let child = Command::new(&path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("Failed to spawn process");
-        let output_buffer = Vec::new();
+        pair.slave
+            .spawn_command(CommandBuilder::new(path))
+            .context("Failed to spawn command in pty")
+            .unwrap();
 
-        Self {
-            path,
-            child,
-            output_buffer,
-        }
-    }
-
-    pub async fn write_input(&mut self, data: &[u8]) -> anyhow::Result<()> {
-        if let Some(stdin) = &mut self.child.stdin {
-            stdin.write_all(data).await?;
-            stdin.flush().await?;
-            Ok(())
-        } else {
-            Err(anyhow!("No stdin available"))
-        }
-    }
-
-    pub fn get_output_as_string(&self) -> String {
-        String::from_utf8_lossy(&self.output_buffer).to_string()
-    }
-
-    pub fn spawn_reader(&mut self) -> mpsc::UnboundedReceiver<String> {
-        let stdout = self.child.stdout.take().expect("No stdout");
-        let (tx, rx) = mpsc::unbounded_channel();
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .context("Failed to clone pty reader")?;
 
         tokio::spawn(async move {
-            let mut reader = BufReader::new(stdout);
-            let mut buf = [0u8; 1024];
-
+            let mut buf = [0u8; 4096];
             loop {
-                match reader.read(&mut buf).await {
+                match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                        if tx.send(chunk).is_err() {
+                        if tx_output.send(buf[..n].to_vec()).await.is_err() {
                             break;
                         }
                     }
@@ -144,6 +126,18 @@ impl Process {
             }
         });
 
-        rx
+        let mut writer = pair.master.take_writer()?;
+        tokio::spawn(async move {
+            while let Some(data) = rx_input.recv().await {
+                let _ = writer.write_all(&data);
+            }
+        });
+
+        Ok((pair, tx_input, rx_output))
     }
+}
+
+pub enum Pane {
+    Terminal,
+    Other,
 }

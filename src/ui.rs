@@ -15,8 +15,6 @@ impl Widget for &App {
             .split(area);
         let chunks = split;
 
-        let text = self.target.get_output_as_string();
-
         let terminal_style = if let Pane::Terminal = self.current_pane {
             Style::default().bg(Color::DarkGray)
         } else {
@@ -38,7 +36,7 @@ impl Widget for &App {
             .border_type(BorderType::Rounded)
             .style(other_style);
 
-        let paragraph = Paragraph::new(text).block(terminal_block);
+        let paragraph = Paragraph::new(self.pty_buffer.clone()).block(terminal_block);
 
         paragraph.render(chunks[0], buf);
         other_block.render(chunks[1], buf);

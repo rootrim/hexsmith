@@ -6,20 +6,17 @@ use tokio::sync::mpsc;
 
 const TICK_FPS: f64 = 30.0;
 
-#[derive(Clone, Debug)]
 pub enum Event {
     Tick,
     Crossterm(CrosstermEvent),
     App(AppEvent),
 }
 
-#[derive(Clone, Debug)]
 pub enum AppEvent {
     Quit,
     PaneSwitch,
 }
 
-#[derive(Debug)]
 pub struct EventHandler {
     sender: mpsc::UnboundedSender<Event>,
     receiver: mpsc::UnboundedReceiver<Event>,
