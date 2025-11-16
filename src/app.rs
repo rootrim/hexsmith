@@ -5,7 +5,8 @@ use anyhow::Context;
 use portable_pty::{CommandBuilder, PtyPair, PtySize, native_pty_system};
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use tokio::sync::mpsc::{self, Receiver, Sender, channel};
+use ratatui::layout::{Constraint, Direction, Layout};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::event::{AppEvent, EventHandler};
 
@@ -46,7 +47,11 @@ impl App {
                     self.pty_buffer = lines[lines.len() - 100..].join("\n");
                 }
             }
-            terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
+            terminal.draw(|frame| {
+                let area = frame.area();
+                self.resize_pty(area.width / 2, area.height).unwrap_or(());
+                frame.render_widget(&self, area)
+            })?;
             match self.events.next().await? {
                 Event::Tick => self.tick(),
                 Event::Crossterm(event) => match event {
@@ -134,6 +139,19 @@ impl App {
         });
 
         Ok((pair, tx_input, rx_output))
+    }
+
+    pub fn resize_pty(&mut self, cols: u16, rows: u16) -> anyhow::Result<()> {
+        self.pair
+            .master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .context("Failed to resize pty")?;
+        Ok(())
     }
 }
 

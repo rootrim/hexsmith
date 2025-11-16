@@ -9,11 +9,10 @@ use crate::app::{App, Pane};
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let split = Layout::default()
+        let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
             .split(area);
-        let chunks = split;
 
         let terminal_style = if let Pane::Terminal = self.current_pane {
             Style::default().bg(Color::DarkGray)
