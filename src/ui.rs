@@ -1,41 +1,60 @@
-use crate::app::{App, CurrentPane};
+use ratatui::{
+    buffer::Buffer,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    widgets::{Block, BorderType, Paragraph, Widget},
+};
 
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Style};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use crate::app::{App, Pane};
 
-pub fn ui(frame: &mut Frame, app: &App) {
-    let split = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(frame.area());
-    let chunks = split;
+impl Widget for &App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .split(area);
+        let otherchunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
+            .split(chunks[1]);
 
-    let terminal_style = if let CurrentPane::Terminal = app.current_pane {
-        Style::default().bg(Color::DarkGray)
-    } else {
-        Style::default()
-    };
+        let terminal_style = if let Pane::Terminal = self.current_pane {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
 
-    let other_style = if let CurrentPane::Other = app.current_pane {
-        Style::default().bg(Color::DarkGray)
-    } else {
-        Style::default()
-    };
+        let payload_style = if let Pane::Payload = self.current_pane {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
 
-    let terminal_block = Block::default()
-        .title("Terminal")
-        .borders(Borders::ALL)
-        .style(terminal_style);
-    let other_block = Block::default()
-        .title("Other Pane")
-        .borders(Borders::ALL)
-        .style(other_style);
+        let shellcode_style = if let Pane::ShellCode = self.current_pane {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
 
-    let terminal_content = app.process.lines.lock().unwrap().join("\n");
-    let terminal = Paragraph::new(terminal_content).block(terminal_block);
+        let terminal = Block::bordered()
+            .title("Terminal")
+            .border_type(BorderType::Rounded)
+            .style(terminal_style);
+        let payload = Block::bordered()
+            .title("Payload Block")
+            .border_type(BorderType::Rounded)
+            .style(payload_style);
+        let shellcode = Block::bordered()
+            .title("ShellCode Block")
+            .border_type(BorderType::Rounded)
+            .style(shellcode_style);
 
-    frame.render_widget(terminal, chunks[0]);
-    frame.render_widget(other_block, chunks[1]);
+        let terminal = Paragraph::new(self.pty_buffer.clone()).block(terminal);
+        let payload = Paragraph::new(self.payload_buffer.clone()).block(payload);
+        let shellcode = Paragraph::new(self.shellcode_buffer.clone()).block(shellcode);
+
+        terminal.render(chunks[0], buf);
+        payload.render(otherchunks[1], buf);
+        shellcode.render(otherchunks[0], buf);
+    }
 }

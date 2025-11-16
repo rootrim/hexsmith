@@ -1,22 +1,19 @@
-mod app;
-mod ui;
-
 use anyhow::Context;
-use app::App;
+
+use crate::app::App;
+
+pub mod app;
+pub mod event;
+pub mod ui;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut terminal = ratatui::init();
-
-    let binary_path = std::env::args()
+    let arg1 = std::env::args()
         .nth(1)
-        .context("Please provide a binary to analyze")?;
+        .context("Please provide a path to the target process")?;
 
-    let mut app = App::new(binary_path);
-
-    app.run(&mut terminal).await?;
-
+    let terminal = ratatui::init();
+    let result = App::new(arg1).run(terminal).await;
     ratatui::restore();
-
-    Ok(())
+    result
 }
