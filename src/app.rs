@@ -5,7 +5,6 @@ use anyhow::Context;
 use portable_pty::{CommandBuilder, PtyPair, PtySize, native_pty_system};
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use ratatui::layout::{Constraint, Direction, Layout};
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::event::{AppEvent, EventHandler};
@@ -20,6 +19,8 @@ pub struct App {
     pub pty_buffer: String,
     pub tx: Sender<Vec<u8>>,
     pub rx: Receiver<Vec<u8>>,
+    pub shellcode_buffer: String,
+    pub payload_buffer: String,
 }
 
 impl App {
@@ -35,6 +36,8 @@ impl App {
             pty_buffer: String::new(),
             tx,
             rx,
+            shellcode_buffer: String::new(),
+            payload_buffer: String::new(),
         }
     }
 
@@ -66,8 +69,9 @@ impl App {
                     AppEvent::Quit => self.running = false,
                     AppEvent::PaneSwitch => {
                         self.current_pane = match self.current_pane {
-                            Pane::Terminal => Pane::Other,
-                            Pane::Other => Pane::Terminal,
+                            Pane::Terminal => Pane::ShellCode,
+                            Pane::ShellCode => Pane::Payload,
+                            Pane::Payload => Pane::Terminal,
                         }
                     }
                 },
@@ -82,10 +86,15 @@ impl App {
         match key_event.code {
             KeyCode::Esc => self.events.send(AppEvent::Quit),
             KeyCode::Tab => self.events.send(AppEvent::PaneSwitch),
-            KeyCode::Char(c) => self.tx.send(vec![c as u8]).await?,
-            KeyCode::Enter => {
-                self.tx.send(vec![b'\n']).await?;
-            }
+            KeyCode::Char(c) => match self.current_pane {
+                Pane::Terminal => self.tx.send(vec![c as u8]).await?,
+                Pane::ShellCode => self.shellcode_buffer.push(c),
+                Pane::Payload => self.payload_buffer.push(c),
+            },
+            KeyCode::Enter => match self.current_pane {
+                Pane::Terminal => self.tx.send(vec![b'\n']).await?,
+                _ => self.send_code().await?,
+            },
             _ => {}
         }
 
@@ -153,9 +162,43 @@ impl App {
             .context("Failed to resize pty")?;
         Ok(())
     }
+
+    pub async fn send_code(&mut self) -> anyhow::Result<()> {
+        let shellcode_as_bytes: Vec<u8> = self
+            .shellcode_buffer
+            .clone()
+            .split("\\x")
+            .filter(|s| !s.is_empty())
+            .map(|h| {
+                u8::from_str_radix(&h[..2], 16)
+                    .context("Couldn't convert the shellcode buffer to a Vec<u8>")
+                    .unwrap()
+            })
+            .collect();
+        let payload_as_bytes: Vec<u8> = self
+            .payload_buffer
+            .clone()
+            .split("\\x")
+            .filter(|s| !s.is_empty())
+            .map(|h| {
+                u8::from_str_radix(&h[..2], 16)
+                    .context("Couldn't convert the payload buffer to a Vec<u8>")
+                    .unwrap()
+            })
+            .collect();
+        let mut the_whole_payload: Vec<u8> = Vec::new();
+        the_whole_payload.extend(payload_as_bytes);
+        the_whole_payload.extend(shellcode_as_bytes);
+        self.tx
+            .send(the_whole_payload)
+            .await
+            .context("Couldn't send the payload")?;
+        Ok(())
+    }
 }
 
 pub enum Pane {
     Terminal,
-    Other,
+    ShellCode,
+    Payload,
 }
