@@ -5,27 +5,38 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     naersk.url = "github:nix-community/naersk";
+    flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, naersk }:
-    let
-      pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      naerskLib = pkgs.callPackage naersk { };
-    in {
+  outputs = { self, flake-utils, naersk, nixpkgs }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = (import nixpkgs) { inherit system; };
 
-      packages.x86_64-linux.default = naerskLib.buildPackage {
-        src = ./.;
+        naersk' = pkgs.callPackage naersk { };
 
-        buildInputs = with pkgs; [
-          openssl
-          cargo
-          rustc
-          rust-analyzer
-          rustfmt
-          clippy
-        ];
+      in rec {
+        defaultPackage = naersk'.buildPackage {
+          pname = "hexsmith";
+          version = "0.1.0";
+          src = ./.;
+        };
 
+        buildInputs = with pkgs; [ openssl mold ];
         nativeBuildInputs = with pkgs; [ pkg-config ];
-      };
-    };
+
+        devShell = pkgs.mkShell {
+          nativeBuildInputs = with pkgs; [
+            rustc
+            cargo
+            clippy
+            rust-analyzer
+            rustfmt
+            openssl
+            pkg-config
+            mold
+          ];
+        };
+
+      });
 }
