@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 
 use crate::event::Event;
 use anyhow::Context;
@@ -52,7 +52,9 @@ impl App {
             }
             terminal.draw(|frame| {
                 let area = frame.area();
-                self.resize_pty(area.width / 2, area.height).unwrap_or(());
+                let cols = (area.width / 2).max(1);
+                let rows = area.height.max(1);
+                self.resize_pty(cols, rows).unwrap_or(());
                 frame.render_widget(&self, area)
             })?;
             match self.events.next().await? {
@@ -91,6 +93,15 @@ impl App {
                 Pane::ShellCode => self.shellcode_buffer.push(c),
                 Pane::Payload => self.payload_buffer.push(c),
             },
+            KeyCode::Backspace => match self.current_pane {
+                Pane::Terminal => self.tx.send(vec![0x7f]).await?,
+                Pane::ShellCode => {
+                    self.shellcode_buffer.pop();
+                }
+                Pane::Payload => {
+                    self.payload_buffer.pop();
+                }
+            },
             KeyCode::Enter => match self.current_pane {
                 Pane::Terminal => self.tx.send(vec![b'\n']).await?,
                 _ => self.send_code().await?,
@@ -107,8 +118,8 @@ impl App {
 
         let pair = native_pty_system()
             .openpty(PtySize {
-                rows: 0,
-                cols: 0,
+                rows: 24,
+                cols: 80,
                 pixel_width: 0,
                 pixel_height: 0,
             })
@@ -125,13 +136,13 @@ impl App {
             .try_clone_reader()
             .context("Failed to clone pty reader")?;
 
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
             let mut buf = [0u8; 4096];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        if tx_output.send(buf[..n].to_vec()).await.is_err() {
+                        if tx_output.blocking_send(buf[..n].to_vec()).is_err() {
                             break;
                         }
                     }
@@ -141,8 +152,8 @@ impl App {
         });
 
         let mut writer = pair.master.take_writer()?;
-        tokio::spawn(async move {
-            while let Some(data) = rx_input.recv().await {
+        tokio::task::spawn_blocking(move || {
+            while let Some(data) = rx_input.blocking_recv() {
                 let _ = writer.write_all(&data);
             }
         });
